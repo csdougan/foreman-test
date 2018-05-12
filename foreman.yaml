@@ -1,12 +1,19 @@
 ---
  - name: install foreman 
-   hosts: local
+   hosts: all
    gather_facts: true
    become: true
    tasks:
+    - name: Setup Centos SCL repo
+      yum:
+       name: centos-release-scl
+       state: present
+      become_user: root
+
     - name: Install Pre-reqs
       yum:
         name:
+         - centos-release-scl
          - make
          - systemd-devel
          - gcc
@@ -20,42 +27,109 @@
          - mysql-devel
          - postgresql-devel
          - libcurl-devel
+         - nginx
         state: present
+      become_user: root
+
+    - name: Create foreman user
+      user:
+        name: foreman
+        shell: /bin/bash
+        comment: Foreman User
+      become_user: root
+
     - name: Clone foreman repo
       git:
         repo: 'https://github.com/csdougan/foreman.git'
-        dest: '/home/vagrant/foreman' 
-      become: false
-    - name: Place settings file
+        dest: '/home/foreman/gitrepo' 
+      become_user: foreman
+
+    - name : Move repo files
+      shell: "mv /home/foreman/gitrepo/* /home/foreman; rm -rf /home/foreman/gitrepo"
+      become_user: foreman
+
+    - name: Set up SCL profile files
       copy:
-        src: /home/vagrant/foreman/config/{{ item }}.example
-        dest: /home/vagrant/foreman/config/{{ item }}
+       content: "source scl_source enable {{ item }}"
+       dest: "/etc/profile.d/enable{{item}}.sh"
+      with_items:
+       - rh-ruby24
+       - rh-nodejs8
+
+    - name: Place settings file
+      shell: "cp /home/foreman/config/{{ item }}.example /home/foreman/config/{{ item }}" 
+      become_user: foreman
       with_items:
        - settings.yaml
        - database.yml
-      become: false
+
     - name: Bundle install
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle install'"
-      become: false
+      shell: "source ~/.bash_profile && bundle install"
+      args:
+        chdir: /home/foreman
+      become_user: foreman
+
     - name: NPM install
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'npm install'"
-      become: false
+      shell: "source ~/.bash_profile && npm install"
+      args:
+        chdir: /home/foreman
+      become_user: foreman
+
     - name: Create Database
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake db:migrate'"
-      become: false
+      shell: "source ~/.bash_profile && bundle exec bin/rake db:migrate"
+      args:
+        chdir: /home/foreman
+      become_user: foreman
+
 #    - name: Run tests
 #      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake test'"
 #      become: false
-    - name: Stop setup background processes
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec spring stop'"
-      become: false
+#    - name: Stop setup background processes
+#      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 '/opt/rh/rh-ruby24/root/usr/bin/bundle exec spring stop'"
+#      become: false
+#
     - name: Populate Database
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake db:seed'"
-      become: false
+      shell: "source ~/.bash_profile && bundle exec bin/rake db:seed"
+      args:
+        chdir: /home/foreman
+      become_user: foreman
+
+    - name : Configure NGINX
+      lineinfile:
+        dest: /etc/nginx/nginx.conf
+        insertafter: '^        location / {'
+        line: '              proxy_pass      http://127.0.0.1:5000;'
+      become_user: root
+      tags: config_nginx
+
+    - name: Restart NGINX
+      shell: systemctl restart nginx
+      become_user: root
+
     - name: Start Foreman 
-      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec foreman start &'"
-      become: false
+      shell: "source ~/.bash_profile;nohup bundle exec foreman start > /tmp/foreman.log 2>&1 &"
+      args:
+        chdir: /home/foreman
+      tags: start_foreman
+      become_user: foreman
+    
+    - name: Reset Admin details for Foreman
+      shell: "source ~/.bash_profile; rake permissions:reset > /tmp/admin_pwd.log"
+      args:
+        chdir: /home/foreman
+      become_user: foreman
+
+    - name: Wait for Foreman GUI to come up
+      wait_for:
+       port: 5000
+       
+
     - name: Check Foreman has started
       uri:
-       url: http://localhost:3000
+       url: http://localhost:5000
+       status_code: 200
+
+    - name: Check NGINX is redirecting correctly
+      uri:
+       url: http://localhost:80
        status_code: 200

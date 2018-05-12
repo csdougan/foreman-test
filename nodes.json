@@ -1,0 +1,14 @@
+{
+  "nodes": {
+    "theforeman.blainethemono.co.uk": {
+      ":ip": "192.168.50.2",
+      "ports": [ {":host":"33808",":guest":"3808",":id":"foreman_a"},
+                  {":host":"35000",":guest":"5000",":id":"foreman_b"},
+                 {":host":"30080",":guest":"80",":id":"foreman_c"} ],
+      ":memory": 1024,
+      ":box": "CentosBox/Centos-7-v7.4-Minimal-CLI",
+      ":shell": "",
+      ":ansible": "foreman.yaml"
+    }
+  }
+}
