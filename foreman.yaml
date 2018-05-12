@@ -1,0 +1,61 @@
+---
+ - name: install foreman 
+   hosts: local
+   gather_facts: true
+   become: true
+   tasks:
+    - name: Install Pre-reqs
+      yum:
+        name:
+         - make
+         - systemd-devel
+         - gcc
+         - gcc-c++
+         - git
+         - "rh-ruby24*"
+         - "rh-nodejs8"
+         - libvirt-devel
+         - libxml2-devel
+         - sqlite-devel
+         - mysql-devel
+         - postgresql-devel
+         - libcurl-devel
+        state: present
+    - name: Clone foreman repo
+      git:
+        repo: 'https://github.com/csdougan/foreman.git'
+        dest: '/home/vagrant/foreman' 
+      become: false
+    - name: Place settings file
+      copy:
+        src: /home/vagrant/foreman/config/{{ item }}.example
+        dest: /home/vagrant/foreman/config/{{ item }}
+      with_items:
+       - settings.yaml
+       - database.yml
+      become: false
+    - name: Bundle install
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle install'"
+      become: false
+    - name: NPM install
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'npm install'"
+      become: false
+    - name: Create Database
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake db:migrate'"
+      become: false
+#    - name: Run tests
+#      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake test'"
+#      become: false
+    - name: Stop setup background processes
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec spring stop'"
+      become: false
+    - name: Populate Database
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec bin/rake db:seed'"
+      become: false
+    - name: Start Foreman 
+      shell: "cd /home/vagrant/foreman && scl enable rh-ruby24 rh-nodejs8 'bundle exec foreman start &'"
+      become: false
+    - name: Check Foreman has started
+      uri:
+       url: http://localhost:3000
+       status_code: 200
